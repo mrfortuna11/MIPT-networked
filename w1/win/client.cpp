@@ -1,10 +1,9 @@
 #include <atomic>
-#include <cstring>
 #include <iostream>
 #include <memory>
 #include <string>
 #include <thread>
-#include <vector>
+#include <chrono>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
@@ -16,31 +15,37 @@ const char* PORT = "2026";
 std::atomic<bool> running{true};
 
 std::string buffered_msg;
-// clang-format off
-std::vector<std::string> messages = {
-    "https://youtu.be/dQw4w9WgXcQ?si=Ox1lQULEyKpisqd",
-    "Never gonna give you up",
-    "Never gonna let you down",
-    "Never gonna run around and desert you",
-    "Never gonna make you cry",
-    "Never gonna say goodbye",
-    "Never gonna tell a lie and hurt you",
-    "..."};
-// clang-format on
 
 addrinfo addr_info;
 int sfd;
 
-void receive_messages()
-{
-	int message_num = -1;
-	while (running)
-	{
-		message_num = (message_num + 1) % messages.size();
-		std::cout << "\rRick: " << messages[message_num] << "\n";
-		std::cout << "> " << buffered_msg << std::flush;
+void receive_messages() {
+	constexpr size_t buf_size = 1000;
+	char buffer[buf_size];
+	
+	while (running) {
+		memset(buffer, 0, buf_size);
+		
+		sockaddr_in from_addr;
+		int from_len = sizeof(sockaddr_in);
+		
+		int num_bytes = recvfrom(sfd, buffer, buf_size - 1, 0, (sockaddr*)&from_addr, &from_len);
+		if (num_bytes > 0) {
+			std::cout << "\n" << std::string(buffer, num_bytes) << std::endl;
+			std::cout << "> " << std::flush;
+		}
+		
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	}
+}
 
-		std::this_thread::sleep_for(std::chrono::seconds(5));
+void send_heartbeat() {
+	while (running) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(500));
+		if (running) {
+			std::string heartbeat = "/ping";
+			sendto(sfd, heartbeat.c_str(), heartbeat.size(), 0, addr_info.ai_addr, addr_info.ai_addrlen);
+		}
 	}
 }
 
@@ -70,10 +75,12 @@ void handle_input()
 		{
 			running = false;
 			std::cout << "\nExiting...\n";
+			std::string quit_msg = "/quit";
+			sendto(sfd, quit_msg.c_str(), quit_msg.size(), 0, addr_info.ai_addr, addr_info.ai_addrlen);
 		}
 		else if (!buffered_msg.empty())
 		{
-			std::cout << "\rYou sent: " << buffered_msg << "\n";
+			std::cout << "\nSending: " << buffered_msg << "\n";
 			int res =
 				sendto(sfd, buffered_msg.c_str(), buffered_msg.size(), 0, addr_info.ai_addr, addr_info.ai_addrlen);
 			if (res == SOCKET_ERROR)
@@ -104,15 +111,26 @@ int main(int argc, const char** argv)
 		return 1;
 	}
 
-	std::cout << "ChatClient - Type '/quit' to exit\n"
+	std::cout << "ChatClient - Connected to server on port " << PORT << "\n"
+			  << "Commands:\n"
+			  << "  /all <message>        - Send to all clients\n"
+			  << "  /w <port> <message>   - Send to client with specific port\n"
+			  << "  /duel                 - Start a duel\n"
+			  << "  /answer <number>      - Submit duel answer\n"
+			  << "  /quit                 - Exit\n"
 			  << "> ";
 
-	std::thread receiver(receive_messages);
+
+	std::thread receiver_thread(receive_messages);
+	std::thread heartbeat_thread(send_heartbeat);
+
 	while (running)
 	{
 		handle_input();
 	}
 
-	receiver.join();
+	receiver_thread.join();
+	heartbeat_thread.join();
+
 	return 0;
 }
