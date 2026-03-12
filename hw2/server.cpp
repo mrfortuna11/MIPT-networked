@@ -15,7 +15,7 @@ const char* PORT = "2026";
 const int PACKET_TIMEOUT_MS = 5000;
 const int ACK_TIMEOUT_MS = 1000;
 
-std::ofstream error_log("server_errors.log", std::ios::app);
+std::ofstream error_log("bin/server_errors.log", std::ios::app);
 
 void log_error(const std::string& client_key, const std::string& error_type, const std::string& details)
 {
@@ -267,8 +267,11 @@ int main(int argc, const char** argv)
 				seq_counter++;
 
 				// Check for packet loss (incoming packet detection)
-				std::cout << "[" << client_key << "] Received packet (seq: " << seq_counter << "): " << message
-						  << std::endl;
+				if (message != "/ping")
+				{
+					std::cout << "[" << client_key << "] Received packet (seq: " << seq_counter << "): " << message
+							  << std::endl;
+				}
 
 				// Check for duplicates
 				if (is_duplicate_packet(client_key, seq_counter))
