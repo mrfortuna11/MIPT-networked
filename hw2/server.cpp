@@ -142,7 +142,11 @@ void mark_packet_received(const std::string& client_key, uint32_t seq_num)
 	if (clients.find(client_key) != clients.end())
 	{
 		clients[client_key].received_packets.insert(seq_num);
-		clients[client_key].last_seq_received = seq_num;
+		// Update last_seq_received only if this is a newer packet
+		if (seq_num > clients[client_key].last_seq_received)
+		{
+			clients[client_key].last_seq_received = seq_num;
+		}
 
 		if (clients[client_key].received_packets.size() > 100)
 		{
@@ -300,7 +304,8 @@ int main(int argc, const char** argv)
 				// Check for packet loss (incoming packet detection)
 				if (message != "/ping")
 				{
-					std::cout << "[" << client_key << "] Received packet (seq: " << client_seq << "): " << message
+					std::cout << "[" << client_key << "] Received packet (seq: " << client_seq 
+							  << ", last_seq: " << clients[client_key].last_seq_received << "): " << message
 							  << std::endl;
 				}
 
@@ -314,6 +319,7 @@ int main(int argc, const char** argv)
 				if (client_seq > 0 && is_duplicate_packet(client_key, client_seq))
 				{
 					log_error(client_key, "DUPLICATE_PACKET", "Seq#" + std::to_string(client_seq) + " - discarding");
+					std::cout << "[DUPLICATE] " << client_key << " - Seq#" << client_seq << std::endl;
 					continue;
 				}
 
@@ -323,6 +329,8 @@ int main(int argc, const char** argv)
 					log_error(client_key, "OUT_OF_ORDER",
 						"Seq#" + std::to_string(client_seq) + " (last was " +
 							std::to_string(clients[client_key].last_seq_received) + ")");
+					std::cout << "[OUT_OF_ORDER] " << client_key << " - Seq#" << client_seq 
+							  << " (last was " << clients[client_key].last_seq_received << ")" << std::endl;
 				}
 
 				if (client_seq > 0)
