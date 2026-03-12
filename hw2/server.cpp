@@ -8,6 +8,7 @@
 #include <set>
 #include <vector>
 #include <ws2tcpip.h>
+#include <filesystem>
 
 #include "socket_tools.h"
 
@@ -15,7 +16,7 @@ const char* PORT = "2026";
 const int PACKET_TIMEOUT_MS = 5000;
 const int ACK_TIMEOUT_MS = 1000;
 
-std::ofstream error_log("bin/server_errors.log", std::ios::app);
+std::ofstream error_log;
 
 void log_error(const std::string& client_key, const std::string& error_type, const std::string& details)
 {
@@ -230,6 +231,17 @@ std::pair<std::string, int> generate_duel()
 
 int main(int argc, const char** argv)
 {
+	// Create bin directory if it doesn't exist
+	std::filesystem::create_directories("bin");
+
+	// Initialize error log
+	error_log.open("bin/server_errors.log", std::ios::app);
+	if (!error_log.is_open())
+	{
+		std::cout << "Failed to open server_errors.log\n";
+		return 1;
+	}
+
 	std::unique_ptr<WSA> wsa = std::make_unique<WSA>();
 	if (!wsa->is_initialized())
 	{
@@ -245,7 +257,7 @@ int main(int argc, const char** argv)
 	}
 
 	std::cout << "ChatServer - Listening on port: " << PORT << "\n";
-	std::cout << "Logging errors to: server_errors.log\n";
+	std::cout << "Logging errors to: bin/server_errors.log\n";
 	error_log << "=== Server Started ===" << std::endl;
 	error_log.flush();
 
