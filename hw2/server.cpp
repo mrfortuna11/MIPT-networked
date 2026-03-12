@@ -63,6 +63,26 @@ std::string get_client_key(const sockaddr_in& addr)
 	return std::string(inet_ntoa(addr.sin_addr)) + ":" + std::to_string(ntohs(addr.sin_port));
 }
 
+uint32_t extract_seq_num(const std::string& message)
+{
+	if (message.find("[SEQ:") == 0)
+	{
+		size_t close_bracket = message.find(']');
+		if (close_bracket != std::string::npos)
+		{
+			try
+			{
+				return std::stoul(message.substr(5, close_bracket - 5));
+			}
+			catch (...)
+			{
+				return 0;
+			}
+		}
+	}
+	return 0;
+}
+
 void register_client(const sockaddr_in& addr)
 {
 	std::string key = get_client_key(addr);
@@ -233,7 +253,6 @@ int main(int argc, const char** argv)
 	FD_ZERO(&read_set);
 	timeval timeout = {0, 100000}; // 100 ms
 	auto last_cleanup = std::chrono::steady_clock::now();
-	uint32_t seq_counter = 0;
 
 	while (true)
 	{
@@ -264,32 +283,40 @@ int main(int argc, const char** argv)
 				register_client(socket_in);
 
 				std::string message(buffer, num_bytes);
-				seq_counter++;
+				uint32_t client_seq = extract_seq_num(message);
 
 				// Check for packet loss (incoming packet detection)
 				if (message != "/ping")
 				{
-					std::cout << "[" << client_key << "] Received packet (seq: " << seq_counter << "): " << message
+					std::cout << "[" << client_key << "] Received packet (seq: " << client_seq << "): " << message
 							  << std::endl;
 				}
 
-				// Check for duplicates
-				if (is_duplicate_packet(client_key, seq_counter))
+				// Send ACK with client's sequence number
+				if (client_seq > 0)
 				{
-					log_error(client_key, "DUPLICATE_PACKET", "Seq#" + std::to_string(seq_counter) + " - discarding");
+					send_ack((SOCKET)sfd, socket_in, client_seq);
+				}
+
+				// Check for duplicates
+				if (client_seq > 0 && is_duplicate_packet(client_key, client_seq))
+				{
+					log_error(client_key, "DUPLICATE_PACKET", "Seq#" + std::to_string(client_seq) + " - discarding");
 					continue;
 				}
 
 				// Check for out of order
-				if (is_out_of_order(client_key, seq_counter))
+				if (client_seq > 0 && is_out_of_order(client_key, client_seq))
 				{
 					log_error(client_key, "OUT_OF_ORDER",
-						"Seq#" + std::to_string(seq_counter) + " (last was " +
+						"Seq#" + std::to_string(client_seq) + " (last was " +
 							std::to_string(clients[client_key].last_seq_received) + ")");
 				}
 
-				mark_packet_received(client_key, seq_counter);
-				send_ack((SOCKET)sfd, socket_in, seq_counter);
+				if (client_seq > 0)
+				{
+					mark_packet_received(client_key, client_seq);
+				}
 
 				if (message == "/ping")
 				{
